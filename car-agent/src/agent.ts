@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getListing } from "./gumtree.js";
 import { getMotHistory } from "./mot.js";
+import { getPhotos } from "./photos.js";
 
 const MODEL = "claude-opus-5-5";
 
@@ -8,10 +9,11 @@ const WORKFLOW = `You are an experienced UK used-car inspector helping a private
 
 Workflow:
 1. Call get_listing for the ad URL. Note make, model, year, engine, gearbox, mileage, owners, price, seller type, location and every claim in the description.
-2. Find the registration: use the plate the user gave, otherwise plate_candidates from the listing (check it matches the car's age identifier). Then call get_mot_history. If no plate can be found, say so and continue with what you have.
-3. Use web_search to find 3-6 comparable cars for sale in the UK (same model/generation, similar year, mileage and gearbox) and, if useful, known common faults for this model/engine.
-4. Analyse the MOT history carefully: mileage timeline (gaps, roll-backs, implausibly low/high annual mileage, does the advertised mileage fit the last MOT), repeated advisories, corrosion, brakes, suspension, tyres, emissions, oil leaks, failures and how quickly they were fixed, gaps between tests, current MOT expiry.
-5. Cross-check the ad against the MOT data (mileage, colour, fuel, "full service history", "like new" etc.) and flag contradictions.
+2. Call get_photos with the most useful imageUrls from the listing (exterior front/rear first, then interior, engine, tyres, dashboard with mileage). Use the photos to judge visible condition (rust, dents, panel gaps, paint mismatch, tyre wear, interior wear, warning lights, odometer reading).
+3. Find the registration: use the plate the user gave, otherwise plateCandidates from the listing, otherwise read it from the photos. Only use a plate from a photo if every character is clearly legible; private plates are often blurred or covered, so never guess. Then call get_mot_history and check that the make, model, colour and fuel in the MOT record match the car; if they don't, the plate is wrong. In the report, say where the plate came from (user / ad text / photo) and that a plate read from a photo should be confirmed with the seller. If no plate can be found, say so and continue with what you have.
+4. Use web_search to find 3-6 comparable cars for sale in the UK (same model/generation, similar year, mileage and gearbox) and, if useful, known common faults for this model/engine.
+5. Analyse the MOT history carefully: mileage timeline (gaps, roll-backs, implausibly low/high annual mileage, does the advertised mileage fit the last MOT), repeated advisories, corrosion, brakes, suspension, tyres, emissions, oil leaks, failures and how quickly they were fixed, gaps between tests, current MOT expiry.
+6. Cross-check the ad against the MOT data (mileage, colour, fuel, "full service history", "like new" etc.) and flag contradictions.
 
 Be specific and honest; do not invent data. If something could not be fetched, say so clearly and state what the user should check manually (e.g. HPI/finance check, V5C).`;
 
@@ -37,11 +39,25 @@ const tools: Anthropic.Beta.BetaToolUnion[] = [
   {
     name: "get_listing",
     description:
-      "Download a Gumtree ad and return its title, price, structured data (JSON-LD), visible text and UK number-plate candidates found on the page.",
+      "Download a Gumtree ad and return its title, price, structured data (JSON-LD), visible text, UK number-plate candidates found in the text and imageUrls of the listing photos.",
     input_schema: {
       type: "object",
       properties: { url: { type: "string", description: "Gumtree ad URL" } },
       required: ["url"],
+      additionalProperties: false,
+    },
+    strict: true,
+  },
+  {
+    name: "get_photos",
+    description:
+      "Download up to 8 listing photos (URLs from get_listing imageUrls) and return them as images, to read the number plate and assess visible condition.",
+    input_schema: {
+      type: "object",
+      properties: {
+        image_urls: { type: "array", items: { type: "string" }, description: "Photo URLs, most useful first" },
+      },
+      required: ["image_urls"],
       additionalProperties: false,
     },
     strict: true,
@@ -70,12 +86,19 @@ export interface AnalyseOptions {
   log?: (msg: string) => void;
 }
 
-async function runTool(name: string, input: Record<string, string>, opts: AnalyseOptions): Promise<string> {
+async function runTool(
+  name: string,
+  input: Record<string, unknown>,
+  opts: AnalyseOptions,
+): Promise<Anthropic.Beta.BetaToolResultBlockParam["content"]> {
   if (name === "get_listing") {
-    return JSON.stringify(await getListing(input.url, opts.htmlFile));
+    return JSON.stringify(await getListing(input.url as string, opts.htmlFile));
   }
   if (name === "get_mot_history") {
-    return getMotHistory(input.registration);
+    return getMotHistory(input.registration as string);
+  }
+  if (name === "get_photos") {
+    return getPhotos(input.image_urls as string[]);
   }
   throw new Error(`Unknown tool: ${name}`);
 }
@@ -123,9 +146,9 @@ export async function analyseCar(opts: AnalyseOptions): Promise<string> {
 
     const results = await Promise.all(
       toolUses.map(async (t): Promise<Anthropic.Beta.BetaToolResultBlockParam> => {
-        log(`${t.name}: ${JSON.stringify(t.input)}`);
+        log(t.name === "get_photos" ? `get_photos: ${(t.input as { image_urls: string[] }).image_urls.length} photos` : `${t.name}: ${JSON.stringify(t.input)}`);
         try {
-          const content = await runTool(t.name, t.input as Record<string, string>, opts);
+          const content = await runTool(t.name, t.input as Record<string, unknown>, opts);
           return { type: "tool_result", tool_use_id: t.id, content };
         } catch (err) {
           log(`  ! ${(err as Error).message}`);
