@@ -11,6 +11,11 @@ const cars = (await readFile(file, "utf8"))
   .split("\n")
   .map((line) => line.trim())
   .filter((line) => line && !line.startsWith("#"))
+  .filter((line) => {
+    if (/^https?:\/\//.test(line)) return true;
+    console.error(`Skipping line that is not a link: ${line}`);
+    return false;
+  })
   .map((line) => {
     const [url, ...reg] = line.split(/\s+/);
     return { url, registration: reg.join("") || undefined };

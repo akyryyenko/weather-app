@@ -112,7 +112,9 @@ export async function analyseCar(opts: AnalyseOptions): Promise<string> {
       (b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use",
     );
     for (const b of response.content) {
-      if (b.type === "server_tool_use") log(`web_search: ${JSON.stringify(b.input)}`);
+      // Dynamic-filtering web search also emits code blocks; only queries are worth showing.
+      const query = (b.type === "server_tool_use" && (b.input as { query?: string }).query) || undefined;
+      if (query) log(`web_search: ${query}`);
     }
 
     if (response.stop_reason !== "tool_use" || toolUses.length === 0) {
