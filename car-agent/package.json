@@ -1,0 +1,20 @@
+{
+  "name": "car-agent",
+  "version": "1.0.0",
+  "description": "Gumtree used-car analyser: listing + MOT history + price comparison via Claude",
+  "scripts": {
+    "check": "tsx src/index.ts",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
+    "cheerio": "^1.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "type": "module",
+  "private": true
+}
