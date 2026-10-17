@@ -118,10 +118,7 @@ export async function analyseCar(opts: AnalyseOptions): Promise<string> {
     }
 
     if (response.stop_reason !== "tool_use" || toolUses.length === 0) {
-      return response.content
-        .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
-        .map((b) => b.text)
-        .join("\n");
+      return finalText(response.content);
     }
 
     const results = await Promise.all(
@@ -139,6 +136,21 @@ export async function analyseCar(opts: AnalyseOptions): Promise<string> {
     messages.push({ role: "user", content: results });
   }
   throw new Error("Agent did not finish within 20 turns");
+}
+
+/**
+ * The report is the text after the last tool call; earlier text is the model
+ * narrating its search. Search citations split one paragraph into several
+ * text blocks, so they are joined without separators.
+ */
+function finalText(content: Anthropic.Beta.BetaContentBlock[]): string {
+  const lastTool = content.findLastIndex((b) => b.type !== "text" && b.type !== "thinking");
+  return content
+    .slice(lastTool + 1)
+    .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("")
+    .trim();
 }
 
 /** Ranks several short reports against each other. */
