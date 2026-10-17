@@ -4,7 +4,7 @@ import { getMotHistory } from "./mot.js";
 
 const MODEL = "claude-opus-5-5";
 
-const SYSTEM = `You are an experienced UK used-car inspector helping a private buyer decide whether a car advertised on Gumtree is worth viewing.
+const WORKFLOW = `You are an experienced UK used-car inspector helping a private buyer decide whether a car advertised on Gumtree is worth viewing.
 
 Workflow:
 1. Call get_listing for the ad URL. Note make, model, year, engine, gearbox, mileage, owners, price, seller type, location and every claim in the description.
@@ -13,16 +13,25 @@ Workflow:
 4. Analyse the MOT history carefully: mileage timeline (gaps, roll-backs, implausibly low/high annual mileage, does the advertised mileage fit the last MOT), repeated advisories, corrosion, brakes, suspension, tyres, emissions, oil leaks, failures and how quickly they were fixed, gaps between tests, current MOT expiry.
 5. Cross-check the ad against the MOT data (mileage, colour, fuel, "full service history", "like new" etc.) and flag contradictions.
 
-Write the final report in Ukrainian, in Markdown, with these sections:
+Be specific and honest; do not invent data. If something could not be fetched, say so clearly and state what the user should check manually (e.g. HPI/finance check, V5C).`;
+
+const FULL_REPORT = `Write the final report in Ukrainian, in Markdown, with these sections:
 - **Коротко** — 2-3 sentences and an overall verdict: "Варто дивитись" / "Дивитись з обережністю" / "Не рекомендую".
 - **Оцінка стану: X/10** with reasoning.
 - **Ціна** — asking price vs the comparables you found (list them with price, year, mileage, link), verdict (дешево / адекватно / дорого) and a sensible offer range in £.
 - **Історія MOT** — a table of tests (date, result, mileage, key defects) and your interpretation.
 - **Ризики** — ordered by severity, each with why it matters and a rough UK repair cost.
 - **Що перевірити на огляді і що спитати продавця** — concrete checklist.
-- **Червоні прапорці / ознаки шахрайства**, if any (price far below market, seller refusing a viewing, deposit requests, plate not matching the car, etc.).
+- **Червоні прапорці / ознаки шахрайства**, if any (price far below market, seller refusing a viewing, deposit requests, plate not matching the car, etc.).`;
 
-Be specific and honest; do not invent data. If something could not be fetched, say so clearly and state what the user should check manually (e.g. HPI/finance check, V5C).`;
+const SHORT_REPORT = `Write a SHORT report in Ukrainian, in Markdown, at most ~20 lines:
+- First line: \`## <make model year> — £<price>\` followed by the ad URL on its own line.
+- **Вердикт:** "Варто дивитись" / "Дивитись з обережністю" / "Не рекомендую" + one sentence why.
+- **Стан:** X/10.
+- **Ціна:** дешево / адекватно / дорого, the market range you found and a sensible offer in £.
+- **MOT:** 2-3 key facts (mileage consistency, recurring advisories, failures, expiry).
+- **Головні ризики:** top 3, one line each with a rough repair cost.
+- **Перевірити на огляді:** top 3 items.`;
 
 const tools: Anthropic.Beta.BetaToolUnion[] = [
   {
@@ -54,6 +63,8 @@ const tools: Anthropic.Beta.BetaToolUnion[] = [
 
 export interface AnalyseOptions {
   url: string;
+  /** Compact report for comparing several cars. */
+  short?: boolean;
   registration?: string;
   htmlFile?: string;
   log?: (msg: string) => void;
@@ -85,7 +96,7 @@ export async function analyseCar(opts: AnalyseOptions): Promise<string> {
       fallbacks: "default",
       thinking: { type: "adaptive" },
       output_config: { effort: "high" },
-      system: SYSTEM,
+      system: `${WORKFLOW}\n\n${opts.short ? SHORT_REPORT : FULL_REPORT}`,
       tools,
       messages,
     });
@@ -126,4 +137,26 @@ export async function analyseCar(opts: AnalyseOptions): Promise<string> {
     messages.push({ role: "user", content: results });
   }
   throw new Error("Agent did not finish within 20 turns");
+}
+
+/** Ranks several short reports against each other. */
+export async function compareCars(reports: string[]): Promise<string> {
+  const client = new Anthropic();
+  const response = await client.beta.messages.create({
+    model: MODEL,
+    max_tokens: 16000,
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    output_config: { effort: "medium" },
+    messages: [
+      {
+        role: "user",
+        content: `Ось короткі звіти по кількох авто з Gumtree:\n\n${reports.join("\n\n---\n\n")}\n\nСклади українською Markdown-таблицю для порівняння (авто, ціна, стан /10, оцінка ціни, вердикт, головний ризик), відсортовану від найкращого варіанту до найгіршого, і під нею 2-3 речення: яку машину дивитись першою і чому. Тільки таблиця і висновок.`,
+      },
+    ],
+  });
+  return response.content
+    .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
+    .map((b) => b.text)
+    .join("\n");
 }

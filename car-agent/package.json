@@ -4,6 +4,7 @@
   "description": "Gumtree used-car analyser: listing + MOT history + price comparison via Claude",
   "scripts": {
     "check": "tsx src/index.ts",
+    "batch": "tsx src/batch.ts",
     "typecheck": "tsc"
   },
   "dependencies": {
