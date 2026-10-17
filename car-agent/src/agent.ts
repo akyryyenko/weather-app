@@ -5,7 +5,7 @@ import { getPhotos } from "./photos.js";
 
 const MODEL = "claude-opus-5-5";
 
-const WORKFLOW = `You are an experienced UK used-car inspector helping a private buyer decide whether a car advertised on Gumtree is worth viewing.
+const WORKFLOW = `You are an experienced UK used-car inspector helping a private buyer decide whether a car advertised online (Gumtree, Facebook Marketplace or similar) is worth viewing.
 
 Workflow:
 1. Call get_listing for the ad URL. Note make, model, year, engine, gearbox, mileage, owners, price, seller type, location and every claim in the description.
@@ -39,10 +39,10 @@ const tools: Anthropic.Beta.BetaToolUnion[] = [
   {
     name: "get_listing",
     description:
-      "Download a Gumtree ad and return its title, price, structured data (JSON-LD), visible text, UK number-plate candidates found in the text and imageUrls of the listing photos.",
+      "Download a car ad (Gumtree, Facebook Marketplace or another site) and return its title, price, description, structured data (JSON-LD), visible text, UK number-plate candidates found in the text and imageUrls of the listing photos.",
     input_schema: {
       type: "object",
-      properties: { url: { type: "string", description: "Gumtree ad URL" } },
+      properties: { url: { type: "string", description: "Ad URL (or the saved-page file path the user gave)" } },
       required: ["url"],
       additionalProperties: false,
     },
@@ -188,7 +188,7 @@ export async function compareCars(reports: string[]): Promise<string> {
     messages: [
       {
         role: "user",
-        content: `Ось короткі звіти по кількох авто з Gumtree:\n\n${reports.join("\n\n---\n\n")}\n\nСклади українською Markdown-таблицю для порівняння (авто, ціна, стан /10, оцінка ціни, вердикт, головний ризик), відсортовану від найкращого варіанту до найгіршого, і під нею 2-3 речення: яку машину дивитись першою і чому. Тільки таблиця і висновок.`,
+        content: `Ось короткі звіти по кількох авто з оголошень:\n\n${reports.join("\n\n---\n\n")}\n\nСклади українською Markdown-таблицю для порівняння (авто, ціна, стан /10, оцінка ціни, вердикт, головний ризик), відсортовану від найкращого варіанту до найгіршого, і під нею 2-3 речення: яку машину дивитись першою і чому. Тільки таблиця і висновок.`,
       },
     ],
   });

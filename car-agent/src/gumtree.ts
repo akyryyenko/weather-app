@@ -6,20 +6,31 @@ export interface Listing {
   url: string;
   title?: string;
   price?: string;
+  description?: string;
+  warning?: string;
   structuredData: unknown[];
   text: string;
   plateCandidates: string[];
   imageUrls: string[];
 }
 
+// Facebook serves the full page only to logged-in users, but gives Open Graph
+// tags (title, price, description, main photo) to its own link-preview crawler.
+const FACEBOOK_CRAWLER_UA = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)";
+
 /**
- * Downloads a Gumtree ad and pulls out everything useful for the model:
- * JSON-LD / meta tags (price, title, specs) plus the visible page text.
- * If Gumtree blocks the request, pass the saved page via `htmlFile`
- * (browser: Ctrl+S → "Webpage, HTML only").
+ * Downloads a car ad (Gumtree, Facebook Marketplace or any other site) and
+ * pulls out everything useful for the model: JSON-LD / meta tags (price,
+ * title, specs) plus the visible page text. If the site blocks the request,
+ * pass the page saved from the browser via `htmlFile`.
  */
 export async function getListing(url: string, htmlFile?: string): Promise<Listing> {
-  const html = htmlFile ? await readFile(htmlFile, "utf8") : await fetchHtml(url);
+  const isFacebook = /(^|\.)facebook\.com$/.test(safeHost(url));
+  const html = htmlFile
+    ? await readFile(htmlFile, "utf8")
+    : isFacebook
+      ? await fetchHtml(url.split("?")[0], FACEBOOK_CRAWLER_UA)
+      : await fetchHtml(url);
   const $ = cheerio.load(html);
 
   const structuredData: unknown[] = [];
@@ -39,11 +50,24 @@ export async function getListing(url: string, htmlFile?: string): Promise<Listin
     url,
     title: meta("og:title") ?? ($("h1").first().text().trim() || undefined),
     price: meta("product:price:amount") ?? ($('[data-q="ad-price"]').first().text().trim() || undefined),
+    description: meta("og:description") ?? meta("description"),
+    warning:
+      isFacebook && !htmlFile
+        ? "Facebook only exposes the preview (title, price, short description, main photo) without login. Specs such as mileage may be missing; if so, tell the user to save the page from a logged-in browser and pass the file."
+        : undefined,
     structuredData,
     text,
-    plateCandidates: findUkPlates(`${$("title").text()}\n${text}`),
+    plateCandidates: findUkPlates(`${$("title").text()}\n${meta("og:description") ?? ""}\n${text}`),
     imageUrls: collectImageUrls($, structuredData),
   };
+}
+
+function safeHost(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
 }
 
 /** Photo URLs from meta tags, JSON-LD and <img> elements, in page order. */

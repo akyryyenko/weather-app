@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { analyseCar, compareCars } from "./agent.js";
 
@@ -6,23 +7,24 @@ const CONCURRENCY = 3;
 
 const file = process.argv[2] ?? "links.txt";
 
-// One car per line: "<gumtree-url> [REG]". Blank lines and # comments are skipped.
+// One car per line: "<ad-url or saved-page.html> [REG]". Blank lines and # comments are skipped.
 const cars = (await readFile(file, "utf8"))
   .split("\n")
   .map((line) => line.trim())
   .filter((line) => line && !line.startsWith("#"))
   .filter((line) => {
-    if (/^https?:\/\//.test(line)) return true;
+    if (/^https?:\/\//.test(line) || /\.html?(\s|$)/i.test(line)) return true;
     console.error(`Skipping line that is not a link: ${line}`);
     return false;
   })
   .map((line) => {
     const [url, ...reg] = line.split(/\s+/);
-    return { url, registration: reg.join("") || undefined };
+    const htmlFile = /^https?:\/\//.test(url) ? undefined : url.replace(/^~/, homedir());
+    return { url, htmlFile, registration: reg.join("") || undefined };
   });
 
 if (cars.length === 0) {
-  console.error(`No links found in ${file}. Put one Gumtree link per line (optionally followed by the plate).`);
+  console.error(`No links found in ${file}. Put one ad link (or saved .html page) per line (optionally followed by the plate).`);
   process.exit(1);
 }
 

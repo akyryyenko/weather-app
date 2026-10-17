@@ -7,8 +7,9 @@ const BROWSER_HEADERS = {
   "Accept-Language": "en-GB,en;q=0.9",
 };
 
-export async function fetchHtml(url: string): Promise<string> {
-  const res = await fetch(url, { headers: BROWSER_HEADERS, redirect: "follow" });
+export async function fetchHtml(url: string, userAgent?: string): Promise<string> {
+  const headers = userAgent ? { ...BROWSER_HEADERS, "User-Agent": userAgent } : BROWSER_HEADERS;
+  const res = await fetch(url, { headers, redirect: "follow" });
   if (!res.ok) {
     throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
   }
